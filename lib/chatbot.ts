@@ -1,7 +1,13 @@
+import { GoogleGenAI } from '@google/genai'
 import { ChatMessage, ReportSummary } from '@/types'
 
-// Simulated AI responses for demonstration
-const aiResponses = [
+// Initialize Google Gemini AI
+const genAI = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY || ''
+})
+
+// Fallback responses for when API is unavailable
+const fallbackResponses = [
   "I'm sorry to hear about your experience. Can you tell me more about when this happened?",
   "That sounds very difficult. How did this situation make you feel?",
   "Thank you for sharing that with me. Can you describe the setting where this occurred?",
@@ -37,23 +43,54 @@ export async function generateAIResponse(
   userMessage: string, 
   conversationHistory: ChatMessage[]
 ): Promise<string> {
-  await delay(800 + Math.random() * 1200) // Simulate processing time
-  
-  const messageCount = conversationHistory.filter(m => m.sender === 'user').length
-  const lowercaseMessage = userMessage.toLowerCase()
-  
-  // Detect emotional keywords and respond appropriately
-  if (lowercaseMessage.includes('scared') || lowercaseMessage.includes('afraid') || lowercaseMessage.includes('terrified')) {
-    return "I can hear that you're feeling scared, and that's completely understandable. Your safety is the most important thing. " + getRandomFollowUp()
+  try {
+    const messageCount = conversationHistory.filter(m => m.sender === 'user').length
+    
+    // Build conversation context for Gemini
+    const conversationContext = conversationHistory
+      .slice(-6) // Keep last 6 messages for context
+      .map(msg => `${msg.sender === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
+      .join('\n')
+    
+    // Create system prompt for harassment support chatbot
+    const systemPrompt = `You are a compassionate AI assistant helping someone report harassment. Your role is to:
+    - Be empathetic, supportive, and non-judgmental
+    - Ask thoughtful follow-up questions to gather important details
+    - Validate their experience and emotions
+    - Never blame the victim
+    - Keep responses concise (2-3 sentences max)
+    - Focus on gathering information for their report
+    
+    Current conversation context:
+    ${conversationContext}
+    
+    User's latest message: ${userMessage}
+    
+    Respond with empathy and ask a relevant follow-up question to help them document their experience.`
+    
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+    const result = await model.generateContent(systemPrompt)
+    const response = result.response
+    const text = response.text()
+    
+    // Ensure response is appropriate length
+    if (text && text.length > 0) {
+      return text.trim()
+    }
+    
+    // Fallback to predefined responses
+    return getFallbackResponse(messageCount)
+    
+  } catch (error) {
+    console.error('Error generating AI response:', error)
+    // Fallback to predefined responses when API fails
+    const messageCount = conversationHistory.filter(m => m.sender === 'user').length
+    return getFallbackResponse(messageCount)
   }
-  
-  if (lowercaseMessage.includes('angry') || lowercaseMessage.includes('furious') || lowercaseMessage.includes('mad')) {
-    return "Your anger is completely justified. What you experienced is not acceptable. " + getRandomFollowUp()
-  }
-  
-  if (lowercaseMessage.includes('ashamed') || lowercaseMessage.includes('embarrassed') || lowercaseMessage.includes('fault')) {
-    return "Please know that this is absolutely not your fault. You have nothing to be ashamed of. " + getRandomFollowUp()
-  }
+}
+
+function getFallbackResponse(messageCount: number): string {
+  const lowercaseMessage = ''  // We don't have access to the message in fallback
   
   // Provide supportive responses early in conversation
   if (messageCount <= 2) {
@@ -71,11 +108,11 @@ export async function generateAIResponse(
   }
   
   // Default responses
-  return getRandomAIResponse()
+  return getRandomFallbackResponse()
 }
 
-function getRandomAIResponse(): string {
-  return aiResponses[Math.floor(Math.random() * aiResponses.length)]
+function getRandomFallbackResponse(): string {
+  return fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)]
 }
 
 function getRandomFollowUp(): string {
@@ -89,14 +126,83 @@ function getRandomSupportiveResponse(): string {
 export async function generateReportSummary(
   conversationHistory: ChatMessage[]
 ): Promise<ReportSummary> {
-  await delay(1500) // Simulate AI processing time
-  
-  const userMessages = conversationHistory
-    .filter(m => m.sender === 'user')
-    .map(m => m.content)
-    .join(' ')
-  
-  // Simple keyword-based categorization (in real app, use proper NLP)
+  try {
+    const userMessages = conversationHistory
+      .filter(m => m.sender === 'user')
+      .map(m => m.content)
+      .join(' ')
+    
+    // Create prompt for Gemini to analyze and categorize the report
+    const analysisPrompt = `Analyze this harassment report conversation and provide a structured summary. 
+    
+    Conversation content: ${userMessages}
+    
+    Please respond with a JSON object containing:
+    {
+      "title": "Brief descriptive title for the incident",
+      "summary": "2-3 sentence summary of what happened",
+      "category": "one of: workplace, online, public, educational, other",
+      "severity": "one of: low, medium, high",
+      "keyPoints": ["array of 2-4 key points from the incident"]
+    }
+    
+    Guidelines:
+    - Be factual and professional
+    - Focus on the key details provided
+    - Assess severity based on impact and nature of incidents
+    - Choose category based on where harassment occurred
+    - Key points should highlight important aspects like frequency, witnesses, evidence, etc.`
+    
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
+    const result = await model.generateContent(analysisPrompt)
+    const response = result.response
+    const text = response.text()
+    
+    // Try to parse the JSON response
+    try {
+      // Clean the response to extract JSON
+      const jsonMatch = text.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        const parsedSummary = JSON.parse(jsonMatch[0])
+        
+        // Validate the parsed summary
+        if (validateAISummary(parsedSummary)) {
+          return parsedSummary as ReportSummary
+        }
+      }
+    } catch (parseError) {
+      console.error('Error parsing AI summary:', parseError)
+    }
+    
+    // Fallback to rule-based summary if AI parsing fails
+    return generateFallbackSummary(userMessages)
+    
+  } catch (error) {
+    console.error('Error generating AI summary:', error)
+    // Fallback to rule-based summary
+    const userMessages = conversationHistory
+      .filter(m => m.sender === 'user')
+      .map(m => m.content)
+      .join(' ')
+    return generateFallbackSummary(userMessages)
+  }
+}
+
+function validateAISummary(summary: any): boolean {
+  return (
+    summary &&
+    typeof summary.title === 'string' &&
+    typeof summary.summary === 'string' &&
+    typeof summary.category === 'string' &&
+    typeof summary.severity === 'string' &&
+    Array.isArray(summary.keyPoints) &&
+    ['workplace', 'online', 'public', 'educational', 'other'].includes(summary.category) &&
+    ['low', 'medium', 'high'].includes(summary.severity)
+  )
+}
+
+function generateFallbackSummary(userMessages: string): ReportSummary {
+  // Simple keyword-based categorization (fallback)
   let category: ReportSummary['category'] = 'other'
   let severity: ReportSummary['severity'] = 'medium'
   
