@@ -89,15 +89,15 @@ export function Sidebar({ className = '' }: SidebarProps) {
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={() => setActiveItem(item.label)}
-                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-left transition-all duration-200 ${
+                  className={`w-full flex items-center space-x-3 px-4 py-3 rounded-xl text-left transition-all duration-200 group ${
                     isActive
-                      ? 'bg-green-50 text-green-700 border border-green-200'
-                      : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                      ? 'bg-gray-100 text-gray-700 border-t border-b border-gray-300 border-l-0 border-r-0'
+                      : 'text-gray-600 hover:bg-green-50 hover:text-green-700 hover:border hover:border-green-200'
                   }`}
                 >
                   <Icon 
                     size={20} 
-                    className={isActive ? 'text-green-600' : 'text-gray-500'} 
+                    className={isActive ? 'text-gray-600' : 'text-gray-500 group-hover:text-green-600'} 
                   />
                   <span className="font-medium">{item.label}</span>
                 </motion.button>
