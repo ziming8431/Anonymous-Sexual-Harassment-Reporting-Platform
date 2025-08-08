@@ -1,10 +1,4 @@
-import { GoogleGenAI } from '@google/genai'
 import { ChatMessage, ReportSummary } from '@/types'
-
-// Initialize Google Gemini AI
-const genAI = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || ''
-})
 
 // Fallback responses for when API is unavailable
 const fallbackResponses = [
@@ -44,46 +38,30 @@ export async function generateAIResponse(
   conversationHistory: ChatMessage[]
 ): Promise<string> {
   try {
-    const messageCount = conversationHistory.filter(m => m.sender === 'user').length
+    console.log('Client: Calling chat API route')
     
-    // Build conversation context for Gemini
-    const conversationContext = conversationHistory
-      .slice(-6) // Keep last 6 messages for context
-      .map(msg => `${msg.sender === 'user' ? 'User' : 'Assistant'}: ${msg.content}`)
-      .join('\n')
-    
-    // Create system prompt for harassment support chatbot
-    const systemPrompt = `You are a compassionate AI assistant helping someone report harassment. Your role is to:
-    - Be empathetic, supportive, and non-judgmental
-    - Ask thoughtful follow-up questions to gather important details
-    - Validate their experience and emotions
-    - Never blame the victim
-    - Keep responses concise (2-3 sentences max)
-    - Focus on gathering information for their report
-    
-    Current conversation context:
-    ${conversationContext}
-    
-    User's latest message: ${userMessage}
-    
-    Respond with empathy and ask a relevant follow-up question to help them document their experience.`
-    
-    const result = await genAI.models.generateContent({
-      model: 'gemini-2.0-flash-001',
-      contents: systemPrompt
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: userMessage,
+        conversationHistory: conversationHistory
+      })
     })
-    const text = result.text
     
-    // Ensure response is appropriate length
-    if (text && text.length > 0) {
-      return text.trim()
+    if (!response.ok) {
+      throw new Error(`API request failed: ${response.status}`)
     }
     
-    // Fallback to predefined responses
-    return getFallbackResponse(messageCount)
+    const data = await response.json()
+    console.log('Client: Received response from API')
+    
+    return data.response || getFallbackResponse(conversationHistory.filter(m => m.sender === 'user').length)
     
   } catch (error) {
-    console.error('Error generating AI response:', error)
+    console.error('Client: Error calling chat API:', error)
     // Fallback to predefined responses when API fails
     const messageCount = conversationHistory.filter(m => m.sender === 'user').length
     return getFallbackResponse(messageCount)
@@ -91,8 +69,7 @@ export async function generateAIResponse(
 }
 
 function getFallbackResponse(messageCount: number): string {
-  const lowercaseMessage = ''  // We don't have access to the message in fallback
-  
+  // Simplified fallback when Gemini API is unavailable
   // Provide supportive responses early in conversation
   if (messageCount <= 2) {
     return getRandomSupportiveResponse() + " " + getRandomFollowUp()
@@ -128,59 +105,29 @@ export async function generateReportSummary(
   conversationHistory: ChatMessage[]
 ): Promise<ReportSummary> {
   try {
-    const userMessages = conversationHistory
-      .filter(m => m.sender === 'user')
-      .map(m => m.content)
-      .join(' ')
+    console.log('Client: Calling summary API route')
     
-    // Create prompt for Gemini to analyze and categorize the report
-    const analysisPrompt = `Analyze this harassment report conversation and provide a structured summary. 
-    
-    Conversation content: ${userMessages}
-    
-    Please respond with a JSON object containing:
-    {
-      "title": "Brief descriptive title for the incident",
-      "summary": "2-3 sentence summary of what happened",
-      "category": "one of: workplace, online, public, educational, other",
-      "severity": "one of: low, medium, high",
-      "keyPoints": ["array of 2-4 key points from the incident"]
-    }
-    
-    Guidelines:
-    - Be factual and professional
-    - Focus on the key details provided
-    - Assess severity based on impact and nature of incidents
-    - Choose category based on where harassment occurred
-    - Key points should highlight important aspects like frequency, witnesses, evidence, etc.`
-    
-    const result = await genAI.models.generateContent({
-      model: 'gemini-2.0-flash-001',
-      contents: analysisPrompt
+    const response = await fetch('/api/summary', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        conversationHistory: conversationHistory
+      })
     })
-    const text = result.text
     
-    // Try to parse the JSON response
-    try {
-      // Clean the response to extract JSON
-      const jsonMatch = text.match(/\{[\s\S]*\}/)
-      if (jsonMatch) {
-        const parsedSummary = JSON.parse(jsonMatch[0])
-        
-        // Validate the parsed summary
-        if (validateAISummary(parsedSummary)) {
-          return parsedSummary as ReportSummary
-        }
-      }
-    } catch (parseError) {
-      console.error('Error parsing AI summary:', parseError)
+    if (!response.ok) {
+      throw new Error(`Summary API request failed: ${response.status}`)
     }
     
-    // Fallback to rule-based summary if AI parsing fails
-    return generateFallbackSummary(userMessages)
+    const data = await response.json()
+    console.log('Client: Received summary from API')
+    
+    return data.summary || generateFallbackSummary('')
     
   } catch (error) {
-    console.error('Error generating AI summary:', error)
+    console.error('Client: Error calling summary API:', error)
     // Fallback to rule-based summary
     const userMessages = conversationHistory
       .filter(m => m.sender === 'user')
@@ -190,18 +137,7 @@ export async function generateReportSummary(
   }
 }
 
-function validateAISummary(summary: any): boolean {
-  return (
-    summary &&
-    typeof summary.title === 'string' &&
-    typeof summary.summary === 'string' &&
-    typeof summary.category === 'string' &&
-    typeof summary.severity === 'string' &&
-    Array.isArray(summary.keyPoints) &&
-    ['workplace', 'online', 'public', 'educational', 'other'].includes(summary.category) &&
-    ['low', 'medium', 'high'].includes(summary.severity)
-  )
-}
+
 
 function generateFallbackSummary(userMessages: string): ReportSummary {
   // Simple keyword-based categorization (fallback)
