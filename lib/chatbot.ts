@@ -68,10 +68,11 @@ export async function generateAIResponse(
     
     Respond with empathy and ask a relevant follow-up question to help them document their experience.`
     
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
-    const result = await model.generateContent(systemPrompt)
-    const response = result.response
-    const text = response.text()
+    const result = await genAI.models.generateContent({
+      model: 'gemini-2.0-flash-001',
+      contents: systemPrompt
+    })
+    const text = result.text
     
     // Ensure response is appropriate length
     if (text && text.length > 0) {
@@ -153,10 +154,11 @@ export async function generateReportSummary(
     - Choose category based on where harassment occurred
     - Key points should highlight important aspects like frequency, witnesses, evidence, etc.`
     
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' })
-    const result = await model.generateContent(analysisPrompt)
-    const response = result.response
-    const text = response.text()
+    const result = await genAI.models.generateContent({
+      model: 'gemini-2.0-flash-001',
+      contents: analysisPrompt
+    })
+    const text = result.text
     
     // Try to parse the JSON response
     try {
